@@ -27,8 +27,10 @@ function getTime(){
     });
 }
 
+// CREATE GROUP
 app.post("/api/create-group",(req,res)=>{
     const {groupName,adminName}=req.body;
+
     if(!groupName||!adminName){
         return res.status(400).json({
             success:false,
@@ -46,12 +48,17 @@ app.post("/api/create-group",(req,res)=>{
             members:[],
             messages:[]
         };
+
         groups.set(FIXED_GROUP_CODE,group);
     }
 
-    res.json({success:true,group});
+    res.json({
+        success:true,
+        group
+    });
 });
 
+// JOIN GROUP
 app.post("/api/join-group",(req,res)=>{
     const {code,memberName}=req.body;
 
@@ -87,13 +94,20 @@ app.post("/api/join-group",(req,res)=>{
         });
     }
 
-    res.json({success:true,group});
+    res.json({
+        success:true,
+        group
+    });
 });
 
+// SOCKET CONNECTION
 io.on("connection",(socket)=>{
+
     console.log("User connected:",socket.id);
 
+    // JOIN ROOM
     socket.on("joinRoom",({code,name})=>{
+
         const groupCode=code.trim().toUpperCase();
 
         if(groupCode!==FIXED_GROUP_CODE){
@@ -113,6 +127,7 @@ io.on("connection",(socket)=>{
         );
 
         if(!existingMember){
+
             if(group.members.length>=5){
                 socket.emit(
                     "errorMessage",
@@ -155,13 +170,19 @@ io.on("connection",(socket)=>{
                 online:member.online
             }))
         );
+
+        console.log(`${name} joined room ${groupCode}`);
     });
 
+    // SEND MESSAGE
     socket.on("sendMessage",({code,message})=>{
+
         const groupCode=code.trim().toUpperCase();
         const group=groups.get(groupCode);
 
-        if(!group||!message||!message.trim()) return;
+        if(!group||!message||!message.trim()){
+            return;
+        }
 
         const newMessage={
             id:crypto.randomUUID(),
@@ -179,18 +200,26 @@ io.on("connection",(socket)=>{
         io.to(groupCode).emit("newMessage",newMessage);
     });
 
+    // DELETE MESSAGE
     socket.on("deleteMessage",({code,messageId})=>{
+
         const group=groups.get(code.trim().toUpperCase());
 
-        if(!group) return;
+        if(!group){
+            return;
+        }
 
         const message=group.messages.find(
             msg=>msg.id===messageId
         );
 
-        if(!message) return;
+        if(!message){
+            return;
+        }
 
-        if(message.sender!==socket.userName) return;
+        if(message.sender!==socket.userName){
+            return;
+        }
 
         group.messages=group.messages.filter(
             msg=>msg.id!==messageId
@@ -199,22 +228,32 @@ io.on("connection",(socket)=>{
         io.to(code).emit("messageDeleted",messageId);
     });
 
+    // TYPING
     socket.on("typing",({code})=>{
-        socket.to(code).emit("userTyping",socket.userName);
+        socket.to(code).emit(
+            "userTyping",
+            socket.userName
+        );
     });
 
     socket.on("stopTyping",({code})=>{
         socket.to(code).emit("userStopTyping");
     });
 
+    // DISCONNECT
     socket.on("disconnect",()=>{
+
         const code=socket.groupCode;
 
-        if(!code) return;
+        if(!code){
+            return;
+        }
 
         const group=groups.get(code);
 
-        if(!group) return;
+        if(!group){
+            return;
+        }
 
         group.members=group.members.filter(
             member=>member.socketId!==socket.id
@@ -225,6 +264,11 @@ io.on("connection",(socket)=>{
             time:getTime()
         });
 
+        // LAST MEMBER LEFT = DELETE ALL CHAT
+        if(group.members.length===0){
+            group.messages=[];
+        }
+
         io.to(code).emit(
             "membersUpdate",
             group.members.map(member=>({
@@ -232,9 +276,12 @@ io.on("connection",(socket)=>{
                 online:member.online
             }))
         );
+
+        console.log("User disconnected:",socket.id);
     });
 });
 
+// SERVER
 const PORT=process.env.PORT||3000;
 
 server.listen(PORT,"0.0.0.0",()=>{

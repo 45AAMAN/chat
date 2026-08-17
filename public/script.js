@@ -4,230 +4,159 @@ let currentGroup=null;
 let currentUser=null;
 let typingTimer=null;
 
-let memberId=
-    localStorage.getItem("chatMemberId");
+let memberId=localStorage.getItem("chatMemberId");
 
 if(!memberId){
-
-    memberId=
-        crypto.randomUUID();
-
-    localStorage.setItem(
-        "chatMemberId",
-        memberId
-    );
+    memberId=crypto.randomUUID();
+    localStorage.setItem("chatMemberId",memberId);
 }
 
 // ELEMENTS
-const homeScreen=
-    document.getElementById("homeScreen");
+const homeScreen=document.getElementById("homeScreen");
+const chatScreen=document.getElementById("chatScreen");
+const createTab=document.getElementById("createTab");
+const joinTab=document.getElementById("joinTab");
+const createForm=document.getElementById("createForm");
+const joinForm=document.getElementById("joinForm");
+const createBtn=document.getElementById("createBtn");
+const joinBtn=document.getElementById("joinBtn");
+const errorText=document.getElementById("errorText");
+const messages=document.getElementById("messages");
+const membersList=document.getElementById("membersList");
+const messageInput=document.getElementById("messageInput");
+const sendBtn=document.getElementById("sendBtn");
+const typingIndicator=document.getElementById("typingIndicator");
 
-const chatScreen=
-    document.getElementById("chatScreen");
+const mainGroupOption=document.getElementById("mainGroupOption");
+const privateGroupOption=document.getElementById("privateGroupOption");
+const privateCodeBox=document.getElementById("privateCodeBox");
+const customCode=document.getElementById("customCode");
 
-const createTab=
-    document.getElementById("createTab");
+// CREATE GROUP TYPE
+mainGroupOption.addEventListener("change",()=>{
+    privateCodeBox.style.display="none";
+    customCode.value="";
+});
 
-const joinTab=
-    document.getElementById("joinTab");
-
-const createForm=
-    document.getElementById("createForm");
-
-const joinForm=
-    document.getElementById("joinForm");
-
-const createBtn=
-    document.getElementById("createBtn");
-
-const joinBtn=
-    document.getElementById("joinBtn");
-
-const errorText=
-    document.getElementById("errorText");
-
-const messages=
-    document.getElementById("messages");
-
-const membersList=
-    document.getElementById("membersList");
-
-const messageInput=
-    document.getElementById("messageInput");
-
-const sendBtn=
-    document.getElementById("sendBtn");
-
-const typingIndicator=
-    document.getElementById("typingIndicator");
+privateGroupOption.addEventListener("change",()=>{
+    privateCodeBox.style.display="block";
+});
 
 // CREATE TAB
 createTab.addEventListener("click",()=>{
-
     createForm.classList.remove("hidden");
     joinForm.classList.add("hidden");
-
     createTab.classList.add("active");
     joinTab.classList.remove("active");
-
     errorText.textContent="";
 });
 
 // JOIN TAB
 joinTab.addEventListener("click",()=>{
-
     createForm.classList.add("hidden");
     joinForm.classList.remove("hidden");
-
     joinTab.classList.add("active");
     createTab.classList.remove("active");
-
     errorText.textContent="";
 });
 
 // CREATE GROUP
-createBtn.addEventListener(
-    "click",
-    async()=>{
+createBtn.addEventListener("click",async()=>{
 
-        const groupName=
-            document
-                .getElementById("groupName")
-                .value
-                .trim();
+    const groupName=document.getElementById("groupName").value.trim();
+    const adminName=document.getElementById("adminName").value.trim();
+    const groupType=document.querySelector(
+        'input[name="groupType"]:checked'
+    ).value;
 
-        const adminName=
-            document
-                .getElementById("adminName")
-                .value
-                .trim();
+    let customCodeValue="";
 
-        if(!groupName||!adminName){
+    if(groupType==="private"){
+        customCodeValue=customCode.value.trim().toUpperCase();
+    }
 
-            showError(
-                "Please enter group name and your name."
-            );
+    if(!groupName||!adminName){
+        showError("Please enter group name and your name.");
+        return;
+    }
 
+    try{
+
+        const response=await fetch("/api/create-group",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({
+                groupName,
+                adminName,
+                groupType,
+                customCode:customCodeValue
+            })
+        });
+
+        const data=await response.json();
+
+        if(!data.success){
+            showError(data.message);
             return;
         }
 
-        try{
+        currentGroup=data.group.code;
+        currentUser=adminName;
 
-            const response=
-                await fetch(
-                    "/api/create-group",
-                    {
-                        method:"POST",
-                        headers:{
-                            "Content-Type":
-                                "application/json"
-                        },
-                        body:JSON.stringify({
-                            groupName,
-                            adminName
-                        })
-                    }
-                );
+        openChat(data.group);
 
-            const data=
-                await response.json();
+    }catch(error){
 
-            if(!data.success){
-
-                showError(
-                    data.message
-                );
-
-                return;
-            }
-
-            currentGroup=
-                data.group.code;
-
-            currentUser=
-                adminName;
-
-            openChat(data.group);
-
-        }catch(error){
-
-            showError(
-                "Server connection failed."
-            );
-        }
+        showError("Server connection failed.");
     }
-);
+});
 
 // JOIN GROUP
-joinBtn.addEventListener(
-    "click",
-    async()=>{
+joinBtn.addEventListener("click",async()=>{
 
-        const code=
-            document
-                .getElementById("groupCode")
-                .value
-                .trim()
-                .toUpperCase();
+    const code=document.getElementById("groupCode")
+        .value.trim().toUpperCase();
 
-        const memberName=
-            document
-                .getElementById("memberName")
-                .value
-                .trim();
+    const memberName=document.getElementById("memberName")
+        .value.trim();
 
-        if(!code||!memberName){
+    if(!code||!memberName){
+        showError("Please enter group code and your name.");
+        return;
+    }
 
-            showError(
-                "Please enter group code and your name."
-            );
+    try{
 
+        const response=await fetch("/api/join-group",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({
+                code,
+                memberName
+            })
+        });
+
+        const data=await response.json();
+
+        if(!data.success){
+            showError(data.message);
             return;
         }
 
-        try{
+        currentGroup=data.group.code;
+        currentUser=memberName;
 
-            const response=
-                await fetch(
-                    "/api/join-group",
-                    {
-                        method:"POST",
-                        headers:{
-                            "Content-Type":
-                                "application/json"
-                        },
-                        body:JSON.stringify({
-                            code,
-                            memberName
-                        })
-                    }
-                );
+        openChat(data.group);
 
-            const data=
-                await response.json();
+    }catch(error){
 
-            if(!data.success){
-
-                showError(
-                    data.message
-                );
-
-                return;
-            }
-
-            currentGroup=code;
-            currentUser=memberName;
-
-            openChat(data.group);
-
-        }catch(error){
-
-            showError(
-                "Server connection failed."
-            );
-        }
+        showError("Server connection failed.");
     }
-);
+});
 
 // OPEN CHAT
 function openChat(group){
@@ -235,77 +164,57 @@ function openChat(group){
     homeScreen.classList.add("hidden");
     chatScreen.classList.remove("hidden");
 
-    document
-        .getElementById("chatGroupName")
+    document.getElementById("chatGroupName")
         .textContent=group.name;
 
-    document
-        .getElementById("chatGroupCode")
+    document.getElementById("chatGroupCode")
         .textContent=group.code;
 
     messages.innerHTML="";
 
-    socket.emit(
-        "joinRoom",
-        {
-            code:currentGroup,
-            name:currentUser,
-            memberId:memberId
-        }
-    );
+    socket.emit("joinRoom",{
+        code:currentGroup,
+        name:currentUser,
+        memberId:memberId
+    });
 }
 
 // GROUP DATA
-socket.on(
-    "groupData",
-    group=>{
+socket.on("groupData",group=>{
 
-        document
-            .getElementById("chatGroupName")
-            .textContent=group.name;
+    document.getElementById("chatGroupName")
+        .textContent=group.name;
 
-        document
-            .getElementById("chatGroupCode")
-            .textContent=group.code;
+    document.getElementById("chatGroupCode")
+        .textContent=group.code;
 
-        updateMembers(
-            group.members
-        );
+    updateMembers(group.members);
 
-        messages.innerHTML="";
+    messages.innerHTML="";
 
-        group.messages.forEach(
-            message=>{
-                displayMessage(message);
-            }
-        );
+    group.messages.forEach(message=>{
+        displayMessage(message);
+    });
 
-        scrollMessages();
-    }
-);
+    scrollMessages();
+});
 
 // MEMBERS UPDATE
-socket.on(
-    "membersUpdate",
-    members=>{
-        updateMembers(members);
-    }
-);
+socket.on("membersUpdate",members=>{
+    updateMembers(members);
+});
 
 // UPDATE MEMBERS
 function updateMembers(members){
 
     membersList.innerHTML="";
 
-    document
-        .getElementById("memberCount")
-        .textContent=
-            `${members.length}/5`;
+    document.getElementById("memberCount")
+        .textContent=`${members.length}/5`;
 
     members.forEach(member=>{
 
-        const div=
-            document.createElement("div");
+        const div=document.createElement("div");
 
         div.className="member";
 
@@ -321,85 +230,60 @@ function updateMembers(members){
 // SEND MESSAGE
 function sendMessage(){
 
-    const message=
-        messageInput.value.trim();
+    const message=messageInput.value.trim();
 
     if(!message){
         return;
     }
 
-    socket.emit(
-        "sendMessage",
-        {
-            code:currentGroup,
-            message:message
-        }
-    );
+    socket.emit("sendMessage",{
+        code:currentGroup,
+        message:message
+    });
 
     messageInput.value="";
 
-    socket.emit(
-        "stopTyping",
-        {
-            code:currentGroup
-        }
-    );
+    socket.emit("stopTyping",{
+        code:currentGroup
+    });
 
     messageInput.focus();
 }
 
 // SEND BUTTON
-sendBtn.addEventListener(
-    "click",
-    sendMessage
-);
+sendBtn.addEventListener("click",sendMessage);
 
-// ENTER
-messageInput.addEventListener(
-    "keydown",
-    event=>{
+// ENTER TO SEND
+messageInput.addEventListener("keydown",event=>{
 
-        if(event.key==="Enter"){
-
-            event.preventDefault();
-
-            sendMessage();
-        }
+    if(event.key==="Enter"){
+        event.preventDefault();
+        sendMessage();
     }
-);
+});
 
 // NEW MESSAGE
-socket.on(
-    "newMessage",
-    message=>{
+socket.on("newMessage",message=>{
 
-        displayMessage(message);
-
-        scrollMessages();
-    }
-);
+    displayMessage(message);
+    scrollMessages();
+});
 
 // DISPLAY MESSAGE
 function displayMessage(message){
 
-    const wrapper=
-        document.createElement("div");
+    const wrapper=document.createElement("div");
 
-    const isMine=
-        message.sender===currentUser;
+    const isMine=message.sender===currentUser;
 
-    wrapper.className=
-        isMine
-            ? "message mine"
-            : "message";
+    wrapper.className=isMine
+        ?"message mine"
+        :"message";
 
-    wrapper.dataset.id=
-        message.id;
+    wrapper.dataset.id=message.id;
 
     wrapper.innerHTML=`
-
         <div class="messageBubble">
-
             <div class="sender">
                 ${escapeHTML(message.sender)}
             </div>
@@ -411,126 +295,88 @@ function displayMessage(message){
             <div class="messageTime">
                 ${message.time}
             </div>
-
         </div>
     `;
 
     if(isMine){
 
-        wrapper.addEventListener(
-            "contextmenu",
-            event=>{
+        wrapper.addEventListener("contextmenu",event=>{
 
-                event.preventDefault();
+            event.preventDefault();
 
-                if(
-                    confirm(
-                        "Delete this message?"
-                    )
-                ){
+            if(confirm("Delete this message?")){
 
-                    socket.emit(
-                        "deleteMessage",
-                        {
-                            code:currentGroup,
-                            messageId:message.id
-                        }
-                    );
-                }
+                socket.emit("deleteMessage",{
+                    code:currentGroup,
+                    messageId:message.id
+                });
             }
-        );
+        });
     }
 
     messages.appendChild(wrapper);
 }
 
 // DELETE MESSAGE
-socket.on(
-    "messageDeleted",
-    messageId=>{
+socket.on("messageDeleted",messageId=>{
 
-        const message=
-            document.querySelector(
-                `[data-id="${messageId}"]`
-            );
+    const message=document.querySelector(
+        `[data-id="${messageId}"]`
+    );
 
-        if(message){
-            message.remove();
-        }
+    if(message){
+        message.remove();
     }
-);
+});
 
 // SYSTEM MESSAGE
-socket.on(
-    "systemMessage",
-    data=>{
+socket.on("systemMessage",data=>{
 
-        const div=
-            document.createElement("div");
+    const div=document.createElement("div");
 
-        div.className=
-            "systemMessage";
+    div.className="systemMessage";
 
-        div.textContent=
-            `${data.text} • ${data.time}`;
+    div.textContent=`${data.text} • ${data.time}`;
 
-        messages.appendChild(div);
+    messages.appendChild(div);
 
-        scrollMessages();
-    }
-);
+    scrollMessages();
+});
 
 // TYPING
-messageInput.addEventListener(
-    "input",
-    ()=>{
+messageInput.addEventListener("input",()=>{
 
-        socket.emit(
-            "typing",
-            {
-                code:currentGroup
-            }
-        );
+    socket.emit("typing",{
+        code:currentGroup
+    });
 
-        clearTimeout(typingTimer);
+    clearTimeout(typingTimer);
 
-        typingTimer=
-            setTimeout(
-                ()=>{
-                    socket.emit(
-                        "stopTyping",
-                        {
-                            code:currentGroup
-                        }
-                    );
-                },
-                1000
-            );
-    }
-);
+    typingTimer=setTimeout(()=>{
 
-socket.on(
-    "userTyping",
-    name=>{
-        typingIndicator.textContent=
-            `${name} is typing...`;
-    }
-);
+        socket.emit("stopTyping",{
+            code:currentGroup
+        });
 
-socket.on(
-    "userStopTyping",
-    ()=>{
-        typingIndicator.textContent="";
-    }
-);
+    },1000);
+});
+
+socket.on("userTyping",name=>{
+
+    typingIndicator.textContent=
+        `${name} is typing...`;
+});
+
+socket.on("userStopTyping",()=>{
+
+    typingIndicator.textContent="";
+});
 
 // ERROR
-socket.on(
-    "errorMessage",
-    message=>{
-        alert(message);
-    }
-);
+socket.on("errorMessage",message=>{
+
+    alert(message);
+});
 
 // SCROLL
 function scrollMessages(){
@@ -539,18 +385,16 @@ function scrollMessages(){
         messages.scrollHeight;
 }
 
-// ERROR
+// ERROR DISPLAY
 function showError(message){
 
-    errorText.textContent=
-        message;
+    errorText.textContent=message;
 }
 
 // SECURITY
 function escapeHTML(text){
 
-    const div=
-        document.createElement("div");
+    const div=document.createElement("div");
 
     div.textContent=text;
 

@@ -16,7 +16,7 @@ app.get("/",(req,res)=>{
 });
 
 const groups=new Map();
-const FIXED_GROUP_CODE="NE2026ET2025";
+const MAIN_GROUP_CODE="NE2026ET2025";
 
 function getTime(){
     return new Date().toLocaleTimeString("en-IN",{
@@ -27,13 +27,33 @@ function getTime(){
     });
 }
 
-function getNow(){
-    return Date.now();
+function generateGroupCode(){
+    let code;
+
+    do{
+        code=crypto.randomBytes(4).toString("hex").toUpperCase();
+    }while(groups.has(code));
+
+    return code;
+}
+
+function createGroup(name,admin,code){
+    const group={
+        name:name.trim(),
+        code:code,
+        admin:admin.trim(),
+        members:[],
+        messages:[]
+    };
+
+    groups.set(code,group);
+
+    return group;
 }
 
 // CREATE GROUP
 app.post("/api/create-group",(req,res)=>{
-    const {groupName,adminName}=req.body;
+    const {groupName,adminName,groupType,customCode}=req.body;
 
     if(!groupName||!adminName){
         return res.status(400).json({
@@ -42,20 +62,44 @@ app.post("/api/create-group",(req,res)=>{
         });
     }
 
-    let group=groups.get(FIXED_GROUP_CODE);
+    let code;
 
-    if(!group){
-        group={
-            name:groupName.trim(),
-            code:FIXED_GROUP_CODE,
-            admin:adminName.trim(),
-            members:[],
-            history:[],
-            memberHistory:new Map()
-        };
+    if(groupType==="main"){
+        code=MAIN_GROUP_CODE;
+    }else{
+        if(customCode&&customCode.trim()){
+            code=customCode.trim().toUpperCase();
 
-        groups.set(FIXED_GROUP_CODE,group);
+            if(code===MAIN_GROUP_CODE){
+                return res.status(400).json({
+                    success:false,
+                    message:"This code is reserved for the main group."
+                });
+            }
+
+            if(groups.has(code)){
+                return res.status(400).json({
+                    success:false,
+                    message:"This group code is already in use."
+                });
+            }
+        }else{
+            code=generateGroupCode();
+        }
     }
+
+    if(groups.has(code)){
+        return res.status(400).json({
+            success:false,
+            message:"This group already exists."
+        });
+    }
+
+    const group=createGroup(
+        groupName,
+        adminName,
+        code
+    );
 
     res.json({
         success:true,
@@ -79,20 +123,12 @@ app.post("/api/join-group",(req,res)=>{
     }
 
     const groupCode=code.trim().toUpperCase();
-
-    if(groupCode!==FIXED_GROUP_CODE){
-        return res.status(404).json({
-            success:false,
-            message:"Invalid group code."
-        });
-    }
-
     const group=groups.get(groupCode);
 
     if(!group){
         return res.status(404).json({
             success:false,
-            message:"Group does not exist. Admin must create the group first."
+            message:"Invalid group code."
         });
     }
 
@@ -117,32 +153,21 @@ app.post("/api/join-group",(req,res)=>{
     });
 });
 
-// SOCKET
+// SOCKET CONNECTION
 io.on("connection",(socket)=>{
 
     console.log("User connected:",socket.id);
 
     // JOIN ROOM
-    socket.on("joinRoom",({code,name,memberId})=>{
+    socket.on("joinRoom",({code,name})=>{
 
         const groupCode=(code||"").trim().toUpperCase();
-
-        if(groupCode!==FIXED_GROUP_CODE){
-            socket.emit("errorMessage","Invalid group code.");
-            return;
-        }
-
         const group=groups.get(groupCode);
 
         if(!group){
-            socket.emit("errorMessage","Group does not exist.");
-            return;
-        }
-
-        if(!memberId){
             socket.emit(
                 "errorMessage",
-                "Member ID missing. Please refresh the page."
+                "Invalid group code."
             );
             return;
         }
@@ -159,61 +184,29 @@ io.on("connection",(socket)=>{
             return;
         }
 
-        // MEMBER HISTORY RECORD
-        let memberRecord=group.memberHistory.get(memberId);
-
-        if(!memberRecord){
-
-            // First time ever joining:
-            // Show all messages from the beginning.
-            memberRecord={
-                firstJoin:true,
-                resetAfter:0
-            };
-
-            group.memberHistory.set(
-                memberId,
-                memberRecord
-            );
-        }
-
-        // If same member reconnects after leaving,
-        // only messages after resetAfter are shown.
-        const visibleMessages=group.history.filter(
-            message=>message.timestamp>memberRecord.resetAfter
-        );
-
-        // Add active member
         group.members.push({
             name:name.trim(),
-            memberId:memberId,
             socketId:socket.id,
             online:true
         });
 
         socket.join(groupCode);
-
         socket.groupCode=groupCode;
         socket.userName=name.trim();
-        socket.memberId=memberId;
 
-        // SEND GROUP DATA
         socket.emit("groupData",{
             name:group.name,
             code:group.code,
             admin:group.admin,
-
             members:group.members
                 .filter(member=>member.online)
                 .map(member=>({
                     name:member.name,
                     online:true
                 })),
-
-            messages:visibleMessages
+            messages:group.messages
         });
 
-        // Join notification to others
         socket.to(groupCode).emit(
             "systemMessage",
             {
@@ -222,7 +215,6 @@ io.on("connection",(socket)=>{
             }
         );
 
-        // Update members
         io.to(groupCode).emit(
             "membersUpdate",
             group.members
@@ -232,10 +224,6 @@ io.on("connection",(socket)=>{
                     online:true
                 }))
         );
-
-        console.log(
-            `${name} joined room ${groupCode}`
-        );
     });
 
     // SEND MESSAGE
@@ -244,11 +232,7 @@ io.on("connection",(socket)=>{
         const groupCode=(code||"").trim().toUpperCase();
         const group=groups.get(groupCode);
 
-        if(!group){
-            return;
-        }
-
-        if(!message||!message.trim()){
+        if(!group||!message||!message.trim()){
             return;
         }
 
@@ -257,14 +241,13 @@ io.on("connection",(socket)=>{
             sender:socket.userName,
             message:message.trim(),
             time:getTime(),
-            timestamp:getNow()
+            timestamp:Date.now()
         };
 
-        group.history.push(newMessage);
+        group.messages.push(newMessage);
 
-        // Maximum 200 messages
-        if(group.history.length>200){
-            group.history.shift();
+        if(group.messages.length>200){
+            group.messages.shift();
         }
 
         io.to(groupCode).emit(
@@ -289,7 +272,7 @@ io.on("connection",(socket)=>{
             }
 
             const message=
-                group.history.find(
+                group.messages.find(
                     msg=>msg.id===messageId
                 );
 
@@ -301,8 +284,8 @@ io.on("connection",(socket)=>{
                 return;
             }
 
-            group.history=
-                group.history.filter(
+            group.messages=
+                group.messages.filter(
                     msg=>msg.id!==messageId
                 );
 
@@ -342,32 +325,9 @@ io.on("connection",(socket)=>{
             return;
         }
 
-        // Find current member
-        const member=group.members.find(
-            item=>item.socketId===socket.id
-        );
-
-        if(member){
-
-            member.online=false;
-
-            // IMPORTANT:
-            // When this member leaves/closes,
-            // reset THEIR history position.
-            const memberRecord=
-                group.memberHistory.get(
-                    member.memberId
-                );
-
-            if(memberRecord){
-                memberRecord.resetAfter=getNow();
-            }
-        }
-
-        // Remove inactive socket
         group.members=
             group.members.filter(
-                item=>item.online
+                member=>member.socketId!==socket.id
             );
 
         socket.to(code).emit(
@@ -378,28 +338,24 @@ io.on("connection",(socket)=>{
             }
         );
 
-        // Update online members
         io.to(code).emit(
             "membersUpdate",
-            group.members.map(member=>({
-                name:member.name,
-                online:true
-            }))
+            group.members
+                .filter(member=>member.online)
+                .map(member=>({
+                    name:member.name,
+                    online:true
+                }))
         );
 
-        // If nobody is online,
-        // clear complete group history.
+        // Last member leaves:
+        // clear this group's chat.
         if(group.members.length===0){
-
-            group.history=[];
-
-            console.log(
-                "No members online. Group history cleared."
-            );
+            group.messages=[];
         }
 
         console.log(
-            `${socket.userName} disconnected`
+            `${socket.userName} disconnected from ${code}`
         );
     });
 });

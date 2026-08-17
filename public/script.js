@@ -1,466 +1,253 @@
-const socket = io();
+const express=require("express");
+const http=require("http");
+const {Server}=require("socket.io");
+const crypto=require("crypto");
+const path=require("path");
 
-let currentGroup = null;
-let currentUser = null;
-let typingTimer;
+const app=express();
+const server=http.createServer(app);
+const io=new Server(server);
 
+app.use(express.json());
+app.use(express.static(path.join(__dirname,"public")));
 
-// ELEMENTS
-const homeScreen = document.getElementById("homeScreen");
-const chatScreen = document.getElementById("chatScreen");
-
-const createTab = document.getElementById("createTab");
-const joinTab = document.getElementById("joinTab");
-
-const createForm = document.getElementById("createForm");
-const joinForm = document.getElementById("joinForm");
-
-const createBtn = document.getElementById("createBtn");
-const joinBtn = document.getElementById("joinBtn");
-
-const errorText = document.getElementById("errorText");
-
-const messages = document.getElementById("messages");
-const membersList = document.getElementById("membersList");
-
-const messageInput = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-
-const typingIndicator =
-    document.getElementById("typingIndicator");
-
-
-// CREATE TAB
-createTab.addEventListener("click", () => {
-
-    createForm.classList.remove("hidden");
-    joinForm.classList.add("hidden");
-
-    createTab.classList.add("active");
-    joinTab.classList.remove("active");
-
-    errorText.textContent = "";
+app.get("/",(req,res)=>{
+    res.sendFile(path.join(__dirname,"public","index.html"));
 });
 
+const groups=new Map();
+const FIXED_GROUP_CODE="NE2026ET2025";
 
-// JOIN TAB
-joinTab.addEventListener("click", () => {
-
-    createForm.classList.add("hidden");
-    joinForm.classList.remove("hidden");
-
-    joinTab.classList.add("active");
-    createTab.classList.remove("active");
-
-    errorText.textContent = "";
-});
-
+function getTime(){
+    return new Date().toLocaleTimeString("en-IN",{
+        timeZone:"Asia/Kolkata",
+        hour:"2-digit",
+        minute:"2-digit",
+        hour12:true
+    });
+}
 
 // CREATE GROUP
-createBtn.addEventListener("click", async () => {
+app.post("/api/create-group",(req,res)=>{
+    const {groupName,adminName}=req.body;
 
-    const groupName =
-        document.getElementById("groupName").value.trim();
-
-    const adminName =
-        document.getElementById("adminName").value.trim();
-
-    if (!groupName || !adminName) {
-        showError("Please enter group name and your name.");
-        return;
-    }
-
-    try {
-
-        const response = await fetch("/api/create-group", {
-
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
-            body: JSON.stringify({
-                groupName,
-                adminName
-            })
-
+    if(!groupName||!adminName){
+        return res.status(400).json({
+            success:false,
+            message:"Group name and admin name are required."
         });
-
-        const data = await response.json();
-
-        if (!data.success) {
-            showError(data.message);
-            return;
-        }
-
-        currentGroup = data.group.code;
-        currentUser = adminName;
-
-        openChat(data.group);
-
-    } catch (error) {
-
-        showError("Server connection failed.");
-
     }
 
-});
+    let group=groups.get(FIXED_GROUP_CODE);
 
+    if(!group){
+        group={
+            name:groupName.trim(),
+            code:FIXED_GROUP_CODE,
+            admin:adminName.trim(),
+            members:[],
+            messages:[]
+        };
+
+        groups.set(FIXED_GROUP_CODE,group);
+    }
+
+    res.json({
+        success:true,
+        group:{
+            ...group,
+            messages:[]
+        }
+    });
+});
 
 // JOIN GROUP
-joinBtn.addEventListener("click", async () => {
+app.post("/api/join-group",(req,res)=>{
+    const {code,memberName}=req.body;
 
-    const code =
-        document.getElementById("groupCode").value
-            .trim()
-            .toUpperCase();
-
-    const memberName =
-        document.getElementById("memberName").value.trim();
-
-    if (!code || !memberName) {
-        showError("Please enter group code and your name.");
-        return;
+    if(!code||!memberName){
+        return res.status(400).json({
+            success:false,
+            message:"Group code and your name are required."
+        });
     }
 
-    try {
+    const groupCode=code.trim().toUpperCase();
 
-        const response = await fetch("/api/join-group", {
-
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
-            body: JSON.stringify({
-                code,
-                memberName
-            })
-
+    if(groupCode!==FIXED_GROUP_CODE){
+        return res.status(404).json({
+            success:false,
+            message:"Invalid group code."
         });
+    }
 
-        const data = await response.json();
+    const group=groups.get(groupCode);
 
-        if (!data.success) {
-            showError(data.message);
+    if(!group){
+        return res.status(404).json({
+            success:false,
+            message:"Group does not exist. Admin must create the group first."
+        });
+    }
+
+    if(group.members.length>=5){
+        return res.status(400).json({
+            success:false,
+            message:"Group is full. Maximum 5 members allowed."
+        });
+    }
+
+    res.json({
+        success:true,
+        group:{
+            ...group,
+            messages:[]
+        }
+    });
+});
+
+// SOCKET CONNECTION
+io.on("connection",(socket)=>{
+
+    console.log("User connected:",socket.id);
+
+    socket.on("joinRoom",({code,name})=>{
+
+        const groupCode=code.trim().toUpperCase();
+
+        if(groupCode!==FIXED_GROUP_CODE){
+            socket.emit("errorMessage","Invalid group code.");
             return;
         }
 
-        currentGroup = code;
-        currentUser = memberName;
-
-        openChat(data.group);
-
-    } catch (error) {
-
-        showError("Server connection failed.");
-
-    }
-
-});
-
-
-// OPEN CHAT
-function openChat(group) {
-
-    homeScreen.classList.add("hidden");
-    chatScreen.classList.remove("hidden");
-
-    document.getElementById("chatGroupName")
-        .textContent = group.name;
-
-    document.getElementById("chatGroupCode")
-        .textContent = group.code;
-
-    messages.innerHTML = "";
-
-    socket.emit("joinRoom", {
-        code: currentGroup,
-        name: currentUser
-    });
-
-}
-
-
-// GROUP DATA
-socket.on("groupData", (group) => {
-
-    document.getElementById("chatGroupName")
-        .textContent = group.name;
-
-    document.getElementById("chatGroupCode")
-        .textContent = group.code;
-
-    membersList.innerHTML = "";
-
-    updateMembers(group.members);
-
-    messages.innerHTML = "";
-
-    group.messages.forEach(message => {
-        displayMessage(message);
-    });
-
-    scrollMessages();
-
-});
-
-
-// MEMBERS UPDATE
-socket.on("membersUpdate", (members) => {
-
-    updateMembers(members);
-
-});
-
-
-// UPDATE MEMBERS
-function updateMembers(members) {
-
-    membersList.innerHTML = "";
-
-    document.getElementById("memberCount")
-        .textContent = `${members.length}/5`;
-
-    members.forEach(member => {
-
-        const div = document.createElement("div");
-
-        div.className = "member";
-
-        div.innerHTML = `
-            <span class="status"></span>
-            <span>${escapeHTML(member.name)}</span>
-        `;
-
-        membersList.appendChild(div);
-
-    });
-
-}
-
-
-// SEND MESSAGE
-function sendMessage() {
-
-    const message = messageInput.value.trim();
-
-    if (!message) {
-        return;
-    }
-
-    socket.emit("sendMessage", {
-
-        code: currentGroup,
-
-        message: message
-
-    });
-
-    messageInput.value = "";
-
-    socket.emit("stopTyping", {
-        code: currentGroup
-    });
-
-    messageInput.focus();
-
-}
-
-
-// SEND BUTTON
-sendBtn.addEventListener("click", sendMessage);
-
-
-// ENTER TO SEND
-messageInput.addEventListener("keydown", (event) => {
-
-    if (event.key === "Enter") {
-
-        event.preventDefault();
-
-        sendMessage();
-
-    }
-
-});
-
-
-// NEW MESSAGE
-socket.on("newMessage", (message) => {
-
-    displayMessage(message);
-
-    scrollMessages();
-
-});
-
-
-// DISPLAY MESSAGE
-function displayMessage(message) {
-
-    const wrapper = document.createElement("div");
-
-    const isMine =
-        message.sender === currentUser;
-
-    wrapper.className =
-        isMine ? "message mine" : "message";
-
-    wrapper.dataset.id = message.id;
-
-    wrapper.innerHTML = `
-
-        <div class="messageBubble">
-
-            <div class="sender">
-                ${escapeHTML(message.sender)}
-            </div>
-
-            <div class="messageText">
-                ${escapeHTML(message.message)}
-            </div>
-
-            <div class="messageTime">
-                ${message.time}
-            </div>
-
-        </div>
-
-    `;
-
-    // DELETE OWN MESSAGE
-    if (isMine) {
-
-        wrapper.addEventListener("contextmenu", (event) => {
-
-            event.preventDefault();
-
-            const confirmDelete =
-                confirm("Delete this message?");
-
-            if (confirmDelete) {
-
-                socket.emit("deleteMessage", {
-
-                    code: currentGroup,
-
-                    messageId: message.id
-
-                });
-
-            }
-
+        const group=groups.get(groupCode);
+
+        if(!group){
+            socket.emit("errorMessage","Group does not exist.");
+            return;
+        }
+
+        if(group.members.length>=5){
+            socket.emit(
+                "errorMessage",
+                "Group is full. Maximum 5 members allowed."
+            );
+            return;
+        }
+
+        group.members.push({
+            name:name.trim(),
+            socketId:socket.id,
+            online:true
         });
 
-    }
+        socket.join(groupCode);
+        socket.groupCode=groupCode;
+        socket.userName=name.trim();
 
-    messages.appendChild(wrapper);
+        // NEW MEMBER KO PURANI CHAT NAHI DIKHEGI
+        socket.emit("groupData",{
+            name:group.name,
+            code:group.code,
+            admin:group.admin,
+            members:group.members.map(member=>({
+                name:member.name,
+                online:member.online
+            })),
+            messages:[]
+        });
 
-}
+        socket.to(groupCode).emit("systemMessage",{
+            text:`${name} joined the group`,
+            time:getTime()
+        });
 
-
-// DELETE MESSAGE
-socket.on("messageDeleted", (messageId) => {
-
-    const message =
-        document.querySelector(
-            `[data-id="${messageId}"]`
+        io.to(groupCode).emit(
+            "membersUpdate",
+            group.members.map(member=>({
+                name:member.name,
+                online:member.online
+            }))
         );
 
-    if (message) {
-        message.remove();
-    }
-
-});
-
-
-// SYSTEM MESSAGE
-socket.on("systemMessage", (data) => {
-
-    const div = document.createElement("div");
-
-    div.className = "systemMessage";
-
-    div.textContent =
-        `${data.text} • ${data.time}`;
-
-    messages.appendChild(div);
-
-    scrollMessages();
-
-});
-
-
-// TYPING
-messageInput.addEventListener("input", () => {
-
-    socket.emit("typing", {
-        code: currentGroup
+        console.log(`${name} joined room ${groupCode}`);
     });
 
-    clearTimeout(typingTimer);
+    // SEND MESSAGE
+    socket.on("sendMessage",({code,message})=>{
 
-    typingTimer = setTimeout(() => {
+        const groupCode=code.trim().toUpperCase();
+        const group=groups.get(groupCode);
 
-        socket.emit("stopTyping", {
-            code: currentGroup
-        });
+        if(!group||!message||!message.trim()){
+            return;
+        }
 
-    }, 1000);
+        const newMessage={
+            id:crypto.randomUUID(),
+            sender:socket.userName,
+            message:message.trim(),
+            time:getTime()
+        };
 
-});
+        group.messages.push(newMessage);
 
+        if(group.messages.length>200){
+            group.messages.shift();
+        }
 
-socket.on("userTyping", (name) => {
+        io.to(groupCode).emit("newMessage",newMessage);
+    });
 
-    typingIndicator.textContent =
-        `${name} is typing...`;
+    // DELETE MESSAGE
+    socket.on("deleteMessage",({code,messageId})=>{
 
-});
+        const group=groups.get(code.trim().toUpperCase());
 
+        if(!group){
+            return;
+        }
 
-socket.on("userStopTyping", () => {
+        const message=group.messages.find(
+            msg=>msg.id===messageId
+        );
 
-    typingIndicator.textContent = "";
+        if(!message){
+            return;
+        }
 
-});
+        if(message.sender!==socket.userName){
+            return;
+        }
 
+        group.messages=group.messages.filter(
+            msg=>msg.id!==messageId
+        );
 
-// ERROR
-socket.on("errorMessage", (message) => {
+        io.to(code).emit("messageDeleted",messageId);
+    });
 
-    alert(message);
+    // TYPING
+    socket.on("typing",({code})=>{
+        socket.to(code).emit(
+            "userTyping",
+            socket.userName
+        );
+    });
 
-});
+    socket.on("stopTyping",({code})=>{
+        socket.to(code).emit("userStopTyping");
+    });
 
+    // DISCONNECT
+    socket.on("disconnect",()=>{
 
-// SCROLL
-function scrollMessages() {
+        const code=socket.groupCode;
 
-    messages.scrollTop =
-        messages.scrollHeight;
+        if(!code){
+            return;
+        }
 
-}
+        const group=groups.get(code);
 
-
-// ERROR DISPLAY
-function showError(message) {
-
-    errorText.textContent = message;
-
-}
-
-
-// SECURITY
-function escapeHTML(text) {
-
-    const div = document.createElement("div");
-
-    div.textContent = text;
-
-    return div.innerHTML;
-
-}
+        if(!group){

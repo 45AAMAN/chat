@@ -21,6 +21,16 @@ function generateCode() {
     return crypto.randomBytes(4).toString("hex").toUpperCase();
 }
 
+// INDIA TIME (IST)
+function getTime() {
+    return new Date().toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+    });
+}
+
 // CREATE GROUP
 app.post("/api/create-group", (req, res) => {
     const { groupName, adminName } = req.body;
@@ -33,6 +43,7 @@ app.post("/api/create-group", (req, res) => {
     }
 
     let code;
+
     do {
         code = generateCode();
     } while (groups.has(code));
@@ -92,6 +103,7 @@ io.on("connection", (socket) => {
 
     console.log("User connected:", socket.id);
 
+    // JOIN ROOM
     socket.on("joinRoom", ({ code, name }) => {
 
         const group = groups.get(code);
@@ -120,6 +132,7 @@ io.on("connection", (socket) => {
         }
 
         socket.join(code);
+
         socket.groupCode = code;
         socket.userName = name;
 
@@ -136,10 +149,7 @@ io.on("connection", (socket) => {
 
         socket.to(code).emit("systemMessage", {
             text: `${name} joined the group`,
-            time: new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit"
-            })
+            time: getTime()
         });
 
         io.to(code).emit(
@@ -149,8 +159,11 @@ io.on("connection", (socket) => {
                 online: member.online
             }))
         );
+
+        console.log(`${name} joined room ${code}`);
     });
 
+    // SEND MESSAGE
     socket.on("sendMessage", ({ code, message }) => {
 
         const group = groups.get(code);
@@ -163,14 +176,12 @@ io.on("connection", (socket) => {
             id: crypto.randomUUID(),
             sender: socket.userName,
             message: message.trim(),
-            time: new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit"
-            })
+            time: getTime()
         };
 
         group.messages.push(newMessage);
 
+        // Keep latest 200 messages
         if (group.messages.length > 200) {
             group.messages.shift();
         }
@@ -178,19 +189,27 @@ io.on("connection", (socket) => {
         io.to(code).emit("newMessage", newMessage);
     });
 
+    // DELETE MESSAGE
     socket.on("deleteMessage", ({ code, messageId }) => {
 
         const group = groups.get(code);
 
-        if (!group) return;
+        if (!group) {
+            return;
+        }
 
         const message = group.messages.find(
             msg => msg.id === messageId
         );
 
-        if (!message) return;
+        if (!message) {
+            return;
+        }
 
-        if (message.sender !== socket.userName) return;
+        // Only message owner can delete
+        if (message.sender !== socket.userName) {
+            return;
+        }
 
         group.messages = group.messages.filter(
             msg => msg.id !== messageId
@@ -199,23 +218,32 @@ io.on("connection", (socket) => {
         io.to(code).emit("messageDeleted", messageId);
     });
 
+    // TYPING
     socket.on("typing", ({ code }) => {
-        socket.to(code).emit("userTyping", socket.userName);
+        socket.to(code).emit(
+            "userTyping",
+            socket.userName
+        );
     });
 
     socket.on("stopTyping", ({ code }) => {
         socket.to(code).emit("userStopTyping");
     });
 
+    // DISCONNECT
     socket.on("disconnect", () => {
 
         const code = socket.groupCode;
 
-        if (!code) return;
+        if (!code) {
+            return;
+        }
 
         const group = groups.get(code);
 
-        if (!group) return;
+        if (!group) {
+            return;
+        }
 
         group.members = group.members.filter(
             member => member.socketId !== socket.id
@@ -223,10 +251,7 @@ io.on("connection", (socket) => {
 
         socket.to(code).emit("systemMessage", {
             text: `${socket.userName} left the group`,
-            time: new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit"
-            })
+            time: getTime()
         });
 
         io.to(code).emit(
@@ -235,6 +260,10 @@ io.on("connection", (socket) => {
                 name: member.name,
                 online: member.online
             }))
+        );
+
+        console.log(
+            `${socket.userName} disconnected from ${code}`
         );
     });
 });

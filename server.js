@@ -1,276 +1,242 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const crypto = require("crypto");
-const path = require("path");
+const express=require("express");
+const http=require("http");
+const {Server}=require("socket.io");
+const crypto=require("crypto");
+const path=require("path");
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+const app=express();
+const server=http.createServer(app);
+const io=new Server(server);
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname,"public")));
 
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
+app.get("/",(req,res)=>{
+    res.sendFile(path.join(__dirname,"public","index.html"));
 });
 
-const groups = new Map();
+const groups=new Map();
+const FIXED_GROUP_CODE="NE2026ET2025";
 
-function generateCode() {
-    return crypto.randomBytes(4).toString("hex").toUpperCase();
-}
-
-// INDIA TIME (IST)
-function getTime() {
-    return new Date().toLocaleTimeString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true
+function getTime(){
+    return new Date().toLocaleTimeString("en-IN",{
+        timeZone:"Asia/Kolkata",
+        hour:"2-digit",
+        minute:"2-digit",
+        hour12:true
     });
 }
 
-// CREATE GROUP
-app.post("/api/create-group", (req, res) => {
-    const { groupName, adminName } = req.body;
-
-    if (!groupName || !adminName) {
+app.post("/api/create-group",(req,res)=>{
+    const {groupName,adminName}=req.body;
+    if(!groupName||!adminName){
         return res.status(400).json({
-            success: false,
-            message: "Group name and your name are required."
+            success:false,
+            message:"Group name and admin name are required."
         });
     }
 
-    let code;
+    let group=groups.get(FIXED_GROUP_CODE);
 
-    do {
-        code = generateCode();
-    } while (groups.has(code));
+    if(!group){
+        group={
+            name:groupName.trim(),
+            code:FIXED_GROUP_CODE,
+            admin:adminName.trim(),
+            members:[],
+            messages:[]
+        };
+        groups.set(FIXED_GROUP_CODE,group);
+    }
 
-    const group = {
-        name: groupName.trim(),
-        code,
-        admin: adminName.trim(),
-        members: [],
-        messages: []
-    };
-
-    groups.set(code, group);
-
-    res.json({
-        success: true,
-        group
-    });
+    res.json({success:true,group});
 });
 
-// JOIN GROUP
-app.post("/api/join-group", (req, res) => {
-    const { code, memberName } = req.body;
+app.post("/api/join-group",(req,res)=>{
+    const {code,memberName}=req.body;
 
-    if (!code || !memberName) {
+    if(!code||!memberName){
         return res.status(400).json({
-            success: false,
-            message: "Group code and your name are required."
+            success:false,
+            message:"Group code and your name are required."
         });
     }
 
-    const groupCode = code.trim().toUpperCase();
-    const group = groups.get(groupCode);
+    const groupCode=code.trim().toUpperCase();
 
-    if (!group) {
+    if(groupCode!==FIXED_GROUP_CODE){
         return res.status(404).json({
-            success: false,
-            message: "Invalid group code."
+            success:false,
+            message:"Invalid group code."
         });
     }
 
-    if (group.members.length >= 5) {
+    const group=groups.get(groupCode);
+
+    if(!group){
+        return res.status(404).json({
+            success:false,
+            message:"Group does not exist. Admin must create the group first."
+        });
+    }
+
+    if(group.members.length>=5){
         return res.status(400).json({
-            success: false,
-            message: "Group is full. Maximum 5 members allowed."
+            success:false,
+            message:"Group is full. Maximum 5 members allowed."
         });
     }
 
-    res.json({
-        success: true,
-        group
-    });
+    res.json({success:true,group});
 });
 
-// SOCKET CONNECTION
-io.on("connection", (socket) => {
+io.on("connection",(socket)=>{
+    console.log("User connected:",socket.id);
 
-    console.log("User connected:", socket.id);
+    socket.on("joinRoom",({code,name})=>{
+        const groupCode=code.trim().toUpperCase();
 
-    // JOIN ROOM
-    socket.on("joinRoom", ({ code, name }) => {
-
-        const group = groups.get(code);
-
-        if (!group) {
-            socket.emit("errorMessage", "Invalid group code.");
+        if(groupCode!==FIXED_GROUP_CODE){
+            socket.emit("errorMessage","Invalid group code.");
             return;
         }
 
-        const existingMember = group.members.find(
-            member => member.socketId === socket.id
+        const group=groups.get(groupCode);
+
+        if(!group){
+            socket.emit("errorMessage","Group does not exist.");
+            return;
+        }
+
+        const existingMember=group.members.find(
+            member=>member.socketId===socket.id
         );
 
-        if (!existingMember) {
-
-            if (group.members.length >= 5) {
-                socket.emit("errorMessage", "Group is full.");
+        if(!existingMember){
+            if(group.members.length>=5){
+                socket.emit(
+                    "errorMessage",
+                    "Group is full. Maximum 5 members allowed."
+                );
                 return;
             }
 
             group.members.push({
-                name: name,
-                socketId: socket.id,
-                online: true
+                name:name.trim(),
+                socketId:socket.id,
+                online:true
             });
         }
 
-        socket.join(code);
+        socket.join(groupCode);
+        socket.groupCode=groupCode;
+        socket.userName=name.trim();
 
-        socket.groupCode = code;
-        socket.userName = name;
-
-        socket.emit("groupData", {
-            name: group.name,
-            code: group.code,
-            admin: group.admin,
-            members: group.members.map(member => ({
-                name: member.name,
-                online: member.online
+        socket.emit("groupData",{
+            name:group.name,
+            code:group.code,
+            admin:group.admin,
+            members:group.members.map(member=>({
+                name:member.name,
+                online:member.online
             })),
-            messages: group.messages
+            messages:group.messages
         });
 
-        socket.to(code).emit("systemMessage", {
-            text: `${name} joined the group`,
-            time: getTime()
+        socket.to(groupCode).emit("systemMessage",{
+            text:`${name} joined the group`,
+            time:getTime()
         });
 
-        io.to(code).emit(
+        io.to(groupCode).emit(
             "membersUpdate",
-            group.members.map(member => ({
-                name: member.name,
-                online: member.online
+            group.members.map(member=>({
+                name:member.name,
+                online:member.online
             }))
         );
-
-        console.log(`${name} joined room ${code}`);
     });
 
-    // SEND MESSAGE
-    socket.on("sendMessage", ({ code, message }) => {
+    socket.on("sendMessage",({code,message})=>{
+        const groupCode=code.trim().toUpperCase();
+        const group=groups.get(groupCode);
 
-        const group = groups.get(code);
+        if(!group||!message||!message.trim()) return;
 
-        if (!group || !message || !message.trim()) {
-            return;
-        }
-
-        const newMessage = {
-            id: crypto.randomUUID(),
-            sender: socket.userName,
-            message: message.trim(),
-            time: getTime()
+        const newMessage={
+            id:crypto.randomUUID(),
+            sender:socket.userName,
+            message:message.trim(),
+            time:getTime()
         };
 
         group.messages.push(newMessage);
 
-        // Keep latest 200 messages
-        if (group.messages.length > 200) {
+        if(group.messages.length>200){
             group.messages.shift();
         }
 
-        io.to(code).emit("newMessage", newMessage);
+        io.to(groupCode).emit("newMessage",newMessage);
     });
 
-    // DELETE MESSAGE
-    socket.on("deleteMessage", ({ code, messageId }) => {
+    socket.on("deleteMessage",({code,messageId})=>{
+        const group=groups.get(code.trim().toUpperCase());
 
-        const group = groups.get(code);
+        if(!group) return;
 
-        if (!group) {
-            return;
-        }
-
-        const message = group.messages.find(
-            msg => msg.id === messageId
+        const message=group.messages.find(
+            msg=>msg.id===messageId
         );
 
-        if (!message) {
-            return;
-        }
+        if(!message) return;
 
-        // Only message owner can delete
-        if (message.sender !== socket.userName) {
-            return;
-        }
+        if(message.sender!==socket.userName) return;
 
-        group.messages = group.messages.filter(
-            msg => msg.id !== messageId
+        group.messages=group.messages.filter(
+            msg=>msg.id!==messageId
         );
 
-        io.to(code).emit("messageDeleted", messageId);
+        io.to(code).emit("messageDeleted",messageId);
     });
 
-    // TYPING
-    socket.on("typing", ({ code }) => {
-        socket.to(code).emit(
-            "userTyping",
-            socket.userName
-        );
+    socket.on("typing",({code})=>{
+        socket.to(code).emit("userTyping",socket.userName);
     });
 
-    socket.on("stopTyping", ({ code }) => {
+    socket.on("stopTyping",({code})=>{
         socket.to(code).emit("userStopTyping");
     });
 
-    // DISCONNECT
-    socket.on("disconnect", () => {
+    socket.on("disconnect",()=>{
+        const code=socket.groupCode;
 
-        const code = socket.groupCode;
+        if(!code) return;
 
-        if (!code) {
-            return;
-        }
+        const group=groups.get(code);
 
-        const group = groups.get(code);
+        if(!group) return;
 
-        if (!group) {
-            return;
-        }
-
-        group.members = group.members.filter(
-            member => member.socketId !== socket.id
+        group.members=group.members.filter(
+            member=>member.socketId!==socket.id
         );
 
-        socket.to(code).emit("systemMessage", {
-            text: `${socket.userName} left the group`,
-            time: getTime()
+        socket.to(code).emit("systemMessage",{
+            text:`${socket.userName} left the group`,
+            time:getTime()
         });
 
         io.to(code).emit(
             "membersUpdate",
-            group.members.map(member => ({
-                name: member.name,
-                online: member.online
+            group.members.map(member=>({
+                name:member.name,
+                online:member.online
             }))
-        );
-
-        console.log(
-            `${socket.userName} disconnected from ${code}`
         );
     });
 });
 
-// SERVER
-const PORT = process.env.PORT || 3000;
+const PORT=process.env.PORT||3000;
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT,"0.0.0.0",()=>{
     console.log(`Chat server running on port ${PORT}`);
 });

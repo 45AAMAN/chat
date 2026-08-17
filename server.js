@@ -27,6 +27,10 @@ function getTime(){
     });
 }
 
+function getNow(){
+    return Date.now();
+}
+
 // CREATE GROUP
 app.post("/api/create-group",(req,res)=>{
     const {groupName,adminName}=req.body;
@@ -46,7 +50,8 @@ app.post("/api/create-group",(req,res)=>{
             code:FIXED_GROUP_CODE,
             admin:adminName.trim(),
             members:[],
-            messages:[]
+            history:[],
+            memberHistory:new Map()
         };
 
         groups.set(FIXED_GROUP_CODE,group);
@@ -54,7 +59,11 @@ app.post("/api/create-group",(req,res)=>{
 
     res.json({
         success:true,
-        group
+        group:{
+            name:group.name,
+            code:group.code,
+            admin:group.admin
+        }
     });
 });
 
@@ -87,7 +96,11 @@ app.post("/api/join-group",(req,res)=>{
         });
     }
 
-    if(group.members.length>=5){
+    const onlineMembers=group.members.filter(
+        member=>member.online
+    );
+
+    if(onlineMembers.length>=5){
         return res.status(400).json({
             success:false,
             message:"Group is full. Maximum 5 members allowed."
@@ -96,19 +109,23 @@ app.post("/api/join-group",(req,res)=>{
 
     res.json({
         success:true,
-        group
+        group:{
+            name:group.name,
+            code:group.code,
+            admin:group.admin
+        }
     });
 });
 
-// SOCKET CONNECTION
+// SOCKET
 io.on("connection",(socket)=>{
 
     console.log("User connected:",socket.id);
 
     // JOIN ROOM
-    socket.on("joinRoom",({code,name})=>{
+    socket.on("joinRoom",({code,name,memberId})=>{
 
-        const groupCode=code.trim().toUpperCase();
+        const groupCode=(code||"").trim().toUpperCase();
 
         if(groupCode!==FIXED_GROUP_CODE){
             socket.emit("errorMessage","Invalid group code.");
@@ -122,65 +139,116 @@ io.on("connection",(socket)=>{
             return;
         }
 
-        const existingMember=group.members.find(
-            member=>member.socketId===socket.id
-        );
-
-        if(!existingMember){
-
-            if(group.members.length>=5){
-                socket.emit(
-                    "errorMessage",
-                    "Group is full. Maximum 5 members allowed."
-                );
-                return;
-            }
-
-            group.members.push({
-                name:name.trim(),
-                socketId:socket.id,
-                online:true
-            });
+        if(!memberId){
+            socket.emit(
+                "errorMessage",
+                "Member ID missing. Please refresh the page."
+            );
+            return;
         }
 
+        const onlineMembers=group.members.filter(
+            member=>member.online
+        );
+
+        if(onlineMembers.length>=5){
+            socket.emit(
+                "errorMessage",
+                "Group is full. Maximum 5 members allowed."
+            );
+            return;
+        }
+
+        // MEMBER HISTORY RECORD
+        let memberRecord=group.memberHistory.get(memberId);
+
+        if(!memberRecord){
+
+            // First time ever joining:
+            // Show all messages from the beginning.
+            memberRecord={
+                firstJoin:true,
+                resetAfter:0
+            };
+
+            group.memberHistory.set(
+                memberId,
+                memberRecord
+            );
+        }
+
+        // If same member reconnects after leaving,
+        // only messages after resetAfter are shown.
+        const visibleMessages=group.history.filter(
+            message=>message.timestamp>memberRecord.resetAfter
+        );
+
+        // Add active member
+        group.members.push({
+            name:name.trim(),
+            memberId:memberId,
+            socketId:socket.id,
+            online:true
+        });
+
         socket.join(groupCode);
+
         socket.groupCode=groupCode;
         socket.userName=name.trim();
+        socket.memberId=memberId;
 
+        // SEND GROUP DATA
         socket.emit("groupData",{
             name:group.name,
             code:group.code,
             admin:group.admin,
-            members:group.members.map(member=>({
-                name:member.name,
-                online:member.online
-            })),
-            messages:group.messages
+
+            members:group.members
+                .filter(member=>member.online)
+                .map(member=>({
+                    name:member.name,
+                    online:true
+                })),
+
+            messages:visibleMessages
         });
 
-        socket.to(groupCode).emit("systemMessage",{
-            text:`${name} joined the group`,
-            time:getTime()
-        });
-
-        io.to(groupCode).emit(
-            "membersUpdate",
-            group.members.map(member=>({
-                name:member.name,
-                online:member.online
-            }))
+        // Join notification to others
+        socket.to(groupCode).emit(
+            "systemMessage",
+            {
+                text:`${name} joined the group`,
+                time:getTime()
+            }
         );
 
-        console.log(`${name} joined room ${groupCode}`);
+        // Update members
+        io.to(groupCode).emit(
+            "membersUpdate",
+            group.members
+                .filter(member=>member.online)
+                .map(member=>({
+                    name:member.name,
+                    online:true
+                }))
+        );
+
+        console.log(
+            `${name} joined room ${groupCode}`
+        );
     });
 
     // SEND MESSAGE
     socket.on("sendMessage",({code,message})=>{
 
-        const groupCode=code.trim().toUpperCase();
+        const groupCode=(code||"").trim().toUpperCase();
         const group=groups.get(groupCode);
 
-        if(!group||!message||!message.trim()){
+        if(!group){
+            return;
+        }
+
+        if(!message||!message.trim()){
             return;
         }
 
@@ -188,45 +256,62 @@ io.on("connection",(socket)=>{
             id:crypto.randomUUID(),
             sender:socket.userName,
             message:message.trim(),
-            time:getTime()
+            time:getTime(),
+            timestamp:getNow()
         };
 
-        group.messages.push(newMessage);
+        group.history.push(newMessage);
 
-        if(group.messages.length>200){
-            group.messages.shift();
+        // Maximum 200 messages
+        if(group.history.length>200){
+            group.history.shift();
         }
 
-        io.to(groupCode).emit("newMessage",newMessage);
+        io.to(groupCode).emit(
+            "newMessage",
+            newMessage
+        );
     });
 
     // DELETE MESSAGE
-    socket.on("deleteMessage",({code,messageId})=>{
+    socket.on(
+        "deleteMessage",
+        ({code,messageId})=>{
 
-        const group=groups.get(code.trim().toUpperCase());
+            const groupCode=
+                (code||"").trim().toUpperCase();
 
-        if(!group){
-            return;
+            const group=
+                groups.get(groupCode);
+
+            if(!group){
+                return;
+            }
+
+            const message=
+                group.history.find(
+                    msg=>msg.id===messageId
+                );
+
+            if(!message){
+                return;
+            }
+
+            if(message.sender!==socket.userName){
+                return;
+            }
+
+            group.history=
+                group.history.filter(
+                    msg=>msg.id!==messageId
+                );
+
+            io.to(groupCode).emit(
+                "messageDeleted",
+                messageId
+            );
         }
-
-        const message=group.messages.find(
-            msg=>msg.id===messageId
-        );
-
-        if(!message){
-            return;
-        }
-
-        if(message.sender!==socket.userName){
-            return;
-        }
-
-        group.messages=group.messages.filter(
-            msg=>msg.id!==messageId
-        );
-
-        io.to(code).emit("messageDeleted",messageId);
-    });
+    );
 
     // TYPING
     socket.on("typing",({code})=>{
@@ -237,7 +322,9 @@ io.on("connection",(socket)=>{
     });
 
     socket.on("stopTyping",({code})=>{
-        socket.to(code).emit("userStopTyping");
+        socket.to(code).emit(
+            "userStopTyping"
+        );
     });
 
     // DISCONNECT
@@ -255,35 +342,77 @@ io.on("connection",(socket)=>{
             return;
         }
 
-        group.members=group.members.filter(
-            member=>member.socketId!==socket.id
+        // Find current member
+        const member=group.members.find(
+            item=>item.socketId===socket.id
         );
 
-        socket.to(code).emit("systemMessage",{
-            text:`${socket.userName} left the group`,
-            time:getTime()
-        });
+        if(member){
 
-        // LAST MEMBER LEFT = DELETE ALL CHAT
-        if(group.members.length===0){
-            group.messages=[];
+            member.online=false;
+
+            // IMPORTANT:
+            // When this member leaves/closes,
+            // reset THEIR history position.
+            const memberRecord=
+                group.memberHistory.get(
+                    member.memberId
+                );
+
+            if(memberRecord){
+                memberRecord.resetAfter=getNow();
+            }
         }
 
+        // Remove inactive socket
+        group.members=
+            group.members.filter(
+                item=>item.online
+            );
+
+        socket.to(code).emit(
+            "systemMessage",
+            {
+                text:`${socket.userName} left the group`,
+                time:getTime()
+            }
+        );
+
+        // Update online members
         io.to(code).emit(
             "membersUpdate",
             group.members.map(member=>({
                 name:member.name,
-                online:member.online
+                online:true
             }))
         );
 
-        console.log("User disconnected:",socket.id);
+        // If nobody is online,
+        // clear complete group history.
+        if(group.members.length===0){
+
+            group.history=[];
+
+            console.log(
+                "No members online. Group history cleared."
+            );
+        }
+
+        console.log(
+            `${socket.userName} disconnected`
+        );
     });
 });
 
 // SERVER
 const PORT=process.env.PORT||3000;
 
-server.listen(PORT,"0.0.0.0",()=>{
-    console.log(`Chat server running on port ${PORT}`);
-});
+server.listen(
+    PORT,
+    "0.0.0.0",
+    ()=>{
+        console.log(
+            `Chat server running on port ${PORT}`
+        );
+    }
+);

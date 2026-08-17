@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <title>Chat</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- HOME SCREEN -->
+    <div id="homeScreen" class="screen">
+
+        <div class="card">
+
+            <h1>Chat</h1>
+
+            <p>Private group messaging</p>
+
+            <div class="tabs">
+
+                <button id="createTab" class="active">
+                    Create Group
+                </button>
+
+                <button id="joinTab">
+                    Join Group
+                </button>
+
+            </div>
+
+            <!-- CREATE GROUP -->
+            <div id="createForm">
+
+                <h2>Create Group</h2>
+
+                <input
+                    type="text"
+                    id="groupName"
+                    placeholder="Group name"
+                >
+
+                <input
+                    type="text"
+                    id="adminName"
+                    placeholder="Your name"
+                >
+
+                <button id="createBtn" class="mainBtn">
+                    Create
+                </button>
+
+            </div>
+
+            <!-- JOIN GROUP -->
+            <div id="joinForm" class="hidden">
+
+                <h2>Join Group</h2>
+
+                <input
+                    type="text"
+                    id="groupCode"
+                    placeholder="Enter group code"
+                >
+
+                <input
+                    type="text"
+                    id="memberName"
+                    placeholder="Your name"
+                >
+
+                <button id="joinBtn" class="mainBtn">
+                    Join
+                </button>
+
+            </div>
+
+            <p id="errorText" class="error"></p>
+
+        </div>
+
+    </div>
+
+
+    <!-- CHAT SCREEN -->
+    <div id="chatScreen" class="screen hidden">
+
+        <div class="chatApp">
+
+            <!-- SIDEBAR -->
+            <aside class="sidebar">
+
+                <div class="sidebarHeader">
+
+                    <h2>Members</h2>
+
+                    <span id="memberCount">
+                        0/5
+                    </span>
+
+                </div>
+
+                <div id="membersList"></div>
+
+            </aside>
+
+
+            <!-- CHAT -->
+            <main class="chat">
+
+                <header class="chatHeader">
+
+                    <div>
+
+                        <h2 id="chatGroupName">
+                            Chat
+                        </h2>
+
+                        <small>
+                            Group Code:
+                            <b id="chatGroupCode"></b>
+                        </small>
+
+                    </div>
+
+                    <div class="online">
+                        ● Online
+                    </div>
+
+                </header>
+
+
+                <!-- MESSAGES -->
+                <div id="messages" class="messages"></div>
+
+                <div
+                    id="typingIndicator"
+                    class="typing"
+                ></div>
+
+
+                <!-- INPUT -->
+                <div class="messageBox">
+
+                    <input
+                        type="text"
+                        id="messageInput"
+                        placeholder="Type a message..."
+                        autocomplete="off"
+                    >
+
+                    <button id="sendBtn">
+                        ➤
+                    </button>
+
+                </div>
+
+            </main>
+
+        </div>
+
+    </div>
+
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+
+</body>
+
+</html>

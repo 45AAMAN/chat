@@ -1,0 +1,329 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #f0f2f5;
+    color: #222;
+}
+
+
+/* COMMON */
+
+.hidden {
+    display: none !important;
+}
+
+.screen {
+    width: 100%;
+    min-height: 100vh;
+}
+
+
+/* HOME */
+
+#homeScreen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.card {
+    width: 100%;
+    max-width: 400px;
+    background: white;
+    padding: 30px;
+    border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+}
+
+.card h1 {
+    text-align: center;
+    font-size: 36px;
+    margin-bottom: 5px;
+}
+
+.card > p {
+    text-align: center;
+    color: #777;
+    margin-bottom: 25px;
+}
+
+
+/* TABS */
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 25px;
+}
+
+.tabs button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    background: #e9ecef;
+    font-weight: bold;
+}
+
+.tabs button.active {
+    background: #1677ff;
+    color: white;
+}
+
+
+/* FORMS */
+
+.card h2 {
+    margin-bottom: 15px;
+}
+
+input {
+    width: 100%;
+    padding: 14px;
+    margin-bottom: 12px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    outline: none;
+    font-size: 15px;
+}
+
+input:focus {
+    border-color: #1677ff;
+}
+
+.mainBtn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: #1677ff;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.mainBtn:hover {
+    opacity: 0.9;
+}
+
+.error {
+    color: #e53935;
+    margin-top: 15px;
+    font-size: 14px;
+}
+
+
+/* CHAT APP */
+
+.chatApp {
+    height: 100vh;
+    display: flex;
+    background: white;
+}
+
+
+/* SIDEBAR */
+
+.sidebar {
+    width: 260px;
+    border-right: 1px solid #ddd;
+    background: #fafafa;
+}
+
+.sidebarHeader {
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid #ddd;
+}
+
+.sidebarHeader h2 {
+    font-size: 20px;
+}
+
+#memberCount {
+    color: #777;
+}
+
+
+.member {
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.status {
+    width: 10px;
+    height: 10px;
+    background: #22c55e;
+    border-radius: 50%;
+}
+
+
+/* CHAT */
+
+.chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chatHeader {
+    padding: 18px 25px;
+    background: #1677ff;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chatHeader h2 {
+    margin-bottom: 5px;
+}
+
+.chatHeader small {
+    opacity: 0.9;
+}
+
+.online {
+    font-size: 14px;
+}
+
+
+/* MESSAGES */
+
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 25px;
+    background: #f5f7fb;
+}
+
+.message {
+    display: flex;
+    margin-bottom: 14px;
+}
+
+.messageBubble {
+    max-width: 65%;
+    background: white;
+    padding: 10px 13px;
+    border-radius: 12px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+}
+
+.message.mine {
+    justify-content: flex-end;
+}
+
+.message.mine .messageBubble {
+    background: #1677ff;
+    color: white;
+}
+
+.sender {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 4px;
+    color: #1677ff;
+}
+
+.message.mine .sender {
+    color: white;
+}
+
+.messageText {
+    font-size: 15px;
+    word-break: break-word;
+}
+
+.messageTime {
+    font-size: 10px;
+    opacity: 0.6;
+    text-align: right;
+    margin-top: 4px;
+}
+
+
+/* SYSTEM */
+
+.systemMessage {
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+    margin: 15px;
+}
+
+
+/* TYPING */
+
+.typing {
+    height: 20px;
+    padding-left: 25px;
+    font-size: 12px;
+    color: #777;
+}
+
+
+/* MESSAGE BOX */
+
+.messageBox {
+    display: flex;
+    gap: 10px;
+    padding: 15px;
+    border-top: 1px solid #ddd;
+    background: white;
+}
+
+.messageBox input {
+    margin: 0;
+    flex: 1;
+}
+
+.messageBox button {
+    width: 50px;
+    border: none;
+    border-radius: 50%;
+    background: #1677ff;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+
+/* MOBILE */
+
+@media (max-width: 700px) {
+
+    .sidebar {
+        display: none;
+    }
+
+    .chatHeader {
+        padding: 15px;
+    }
+
+    .messages {
+        padding: 15px;
+    }
+
+    .messageBubble {
+        max-width: 80%;
+    }
+
+    .card {
+        padding: 22px;
+    }
+
+}

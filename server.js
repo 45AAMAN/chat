@@ -2,13 +2,18 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const crypto = require("crypto");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.json());
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 const groups = new Map();
 
@@ -28,7 +33,6 @@ app.post("/api/create-group", (req, res) => {
     }
 
     let code;
-
     do {
         code = generateCode();
     } while (groups.has(code));
@@ -88,7 +92,6 @@ io.on("connection", (socket) => {
 
     console.log("User connected:", socket.id);
 
-    // JOIN ROOM
     socket.on("joinRoom", ({ code, name }) => {
 
         const group = groups.get(code);
@@ -98,7 +101,6 @@ io.on("connection", (socket) => {
             return;
         }
 
-        // Check if this socket is already in group
         const existingMember = group.members.find(
             member => member.socketId === socket.id
         );
@@ -118,7 +120,6 @@ io.on("connection", (socket) => {
         }
 
         socket.join(code);
-
         socket.groupCode = code;
         socket.userName = name;
 
@@ -148,16 +149,13 @@ io.on("connection", (socket) => {
                 online: member.online
             }))
         );
-
-        console.log(`${name} joined room ${code}`);
     });
 
-    // SEND MESSAGE
     socket.on("sendMessage", ({ code, message }) => {
 
         const group = groups.get(code);
 
-        if (!group || !message.trim()) {
+        if (!group || !message || !message.trim()) {
             return;
         }
 
@@ -173,7 +171,6 @@ io.on("connection", (socket) => {
 
         group.messages.push(newMessage);
 
-        // Keep only latest 200 messages
         if (group.messages.length > 200) {
             group.messages.shift();
         }
@@ -181,27 +178,19 @@ io.on("connection", (socket) => {
         io.to(code).emit("newMessage", newMessage);
     });
 
-    // DELETE MESSAGE
     socket.on("deleteMessage", ({ code, messageId }) => {
 
         const group = groups.get(code);
 
-        if (!group) {
-            return;
-        }
+        if (!group) return;
 
         const message = group.messages.find(
             msg => msg.id === messageId
         );
 
-        if (!message) {
-            return;
-        }
+        if (!message) return;
 
-        // Only message owner can delete
-        if (message.sender !== socket.userName) {
-            return;
-        }
+        if (message.sender !== socket.userName) return;
 
         group.messages = group.messages.filter(
             msg => msg.id !== messageId
@@ -210,7 +199,6 @@ io.on("connection", (socket) => {
         io.to(code).emit("messageDeleted", messageId);
     });
 
-    // TYPING
     socket.on("typing", ({ code }) => {
         socket.to(code).emit("userTyping", socket.userName);
     });
@@ -219,20 +207,15 @@ io.on("connection", (socket) => {
         socket.to(code).emit("userStopTyping");
     });
 
-    // DISCONNECT
     socket.on("disconnect", () => {
 
         const code = socket.groupCode;
 
-        if (!code) {
-            return;
-        }
+        if (!code) return;
 
         const group = groups.get(code);
 
-        if (!group) {
-            return;
-        }
+        if (!group) return;
 
         group.members = group.members.filter(
             member => member.socketId !== socket.id
@@ -253,14 +236,12 @@ io.on("connection", (socket) => {
                 online: member.online
             }))
         );
-
-        console.log("User disconnected:", socket.id);
     });
 });
 
 // SERVER
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
-    console.log(`Chat server running at http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Chat server running on port ${PORT}`);
 });
